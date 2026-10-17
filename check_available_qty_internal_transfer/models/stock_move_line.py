@@ -19,9 +19,8 @@ class StockMoveLine(models.Model):
 
     is_excess_stock = fields.Boolean(
         string='Is Excess Stock Input',
-        compute='_compute_is_excess_stock',
-        store=True,
-        search='_search_is_excess_stock',
+        default=False,
+        copy=False,
         help='Indicates if the done quantity exceeds the available quantity for internal transfers.',
     )
 
@@ -115,24 +114,6 @@ class StockMoveLine(models.Model):
                 elif 0 < line.qty_done <= line.available_qty:
                     line.is_excess_stock = False
 
-    @api.depends('qty_done', 'available_qty', 'picking_type_id.code', 'picking_id.picking_type_id.code', 'state', 'picking_id.is_locked')
-    def _compute_is_excess_stock(self):
-        for line in self:
-            code = (
-                (line.picking_type_id and line.picking_type_id.code)
-                or (line.picking_id and line.picking_id.picking_type_id and line.picking_id.picking_type_id.code)
-            )
-            is_locked_done = line.state == 'done' and line.picking_id and line.picking_id.is_locked
-            if code == 'internal' and line.state != 'cancel' and not is_locked_done:
-                if line.qty_done > line.available_qty:
-                    line.is_excess_stock = True
-                elif 0 < line.qty_done <= line.available_qty:
-                    line.is_excess_stock = False
-                else:
-                    line.is_excess_stock = bool(line.is_excess_stock)
-            else:
-                line.is_excess_stock = False
-
     @api.model_create_multi
     def create(self, vals_list):
         for vals in vals_list:
@@ -166,43 +147,3 @@ class StockMoveLine(models.Model):
                     elif 0 < line.qty_done <= line.available_qty:
                         line.write({'is_excess_stock': False})
         return res
-
-    def _search_is_excess_stock(self, operator, value):
-        query = """
-            WITH quant_sum AS (
-                SELECT product_id, location_id, COALESCE(SUM(quantity), 0) AS total_quant
-                FROM stock_quant
-                GROUP BY product_id, location_id
-            )
-            SELECT sml.id
-            FROM stock_move_line sml
-            JOIN stock_picking sp ON sml.picking_id = sp.id
-            JOIN stock_picking_type spt ON sp.picking_type_id = spt.id
-            JOIN product_product pp ON sml.product_id = pp.id
-            JOIN product_template pt ON pp.product_tmpl_id = pt.id
-            LEFT JOIN quant_sum qs ON qs.product_id = sml.product_id AND qs.location_id = sml.location_id
-            WHERE spt.code = 'internal'
-              AND sml.state IN ('assigned', 'confirmed', 'draft', 'waiting', 'done')
-              AND pt.type = 'product'
-              AND (sml.state != 'done' OR sp.is_locked = FALSE)
-              AND (sml.is_excess_stock = TRUE OR (sml.qty_done > 0 AND sml.qty_done > COALESCE(qs.total_quant, 0)))
-            ORDER BY sml.id DESC
-            LIMIT 1000
-        """
-        self.env.cr.execute(query)
-        res = self.env.cr.fetchall()
-        candidate_ids = [r[0] for r in res] if res else []
-
-        if not candidate_ids:
-            excess_ids = []
-        else:
-            candidate_lines = self.browse(candidate_ids)
-            excess_ids = candidate_lines.filtered(
-                lambda l: not (l.state == 'done' and l.picking_id and l.picking_id.is_locked) and (l.is_excess_stock or l.qty_done > l.available_qty)
-            ).ids
-
-        positive = (operator in ('=', '==') and value) or (operator == '!=' and not value)
-        if positive:
-            return [('id', 'in', excess_ids)]
-        else:
-            return [('id', 'not in', excess_ids)]
