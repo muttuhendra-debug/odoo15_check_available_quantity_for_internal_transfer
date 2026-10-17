@@ -4,10 +4,13 @@ odoo.define('check_available_qty_internal_transfer.excess_stock_dialog', functio
     var Dialog = require('web.Dialog');
     var CrashManager = require('web.CrashManager');
     var WebClient = require('web.WebClient');
+    var BasicModel = require('web.BasicModel');
+    var rpc = require('web.rpc');
     var core = require('web.core');
     var _t = core ? core._t : function (s) { return s; };
 
     var currentWebClientInstance = null;
+    window._skipExcessStockCheckOnce = false;
 
     WebClient.include({
         init: function () {
@@ -15,6 +18,23 @@ odoo.define('check_available_qty_internal_transfer.excess_stock_dialog', functio
             currentWebClientInstance = this;
         },
     });
+
+    if (BasicModel) {
+        BasicModel.include({
+            save: function (handle, options) {
+                options = options || {};
+                if (window._skipExcessStockCheckOnce) {
+                    options.context = _.extend({}, options.context || {}, { skip_excess_check: true });
+                    if (this.localData && this.localData[handle] && this.localData[handle].context) {
+                        this.localData[handle].context.skip_excess_check = true;
+                    }
+                }
+                var promise = this._super.apply(this, arguments);
+                window._skipExcessStockCheckOnce = false;
+                return promise;
+            },
+        });
+    }
 
     function extractText(node) {
         if (!node) return "";
@@ -55,6 +75,8 @@ odoo.define('check_available_qty_internal_transfer.excess_stock_dialog', functio
     }
 
     function triggerFormSaveWithExcessContext(ownerWidget) {
+        window._skipExcessStockCheckOnce = true;
+
         var formWidget = findActiveFormWidget(ownerWidget);
         var extraCtx = { skip_excess_check: true };
 
@@ -73,17 +95,24 @@ odoo.define('check_available_qty_internal_transfer.excess_stock_dialog', functio
                 extraContext: extraCtx,
                 reload: true,
             });
+        } else {
+            var $saveBtn = $('.o_form_button_save, button.o_form_button_save').first();
+            if ($saveBtn.length) {
+                $saveBtn.click();
+            }
         }
     }
 
-    function attachInformationButtonToElement($dialogEl, dialogInstance) {
-        if (!$dialogEl || !$dialogEl.length) return;
-        var text = $dialogEl.text() || "";
+    function checkAndInjectInfoButton(modalEl) {
+        var $modal = $(modalEl);
+        if (!$modal.length) return;
+
+        var text = $modal.text() || "";
         if (!isExcessStockMessage(text)) return;
 
-        var $footer = $dialogEl.find('.modal-footer, .o_dialog_footer, footer');
+        var $footer = $modal.find('.modal-footer, .o_dialog_footer, footer');
         if (!$footer.length) {
-            $footer = $dialogEl.closest('.modal-content, .o_dialog').find('.modal-footer, .o_dialog_footer, footer');
+            $footer = $modal.find('.modal-content, .o_dialog');
         }
 
         if ($footer.length && !$footer.find('.o_excess_stock_info_btn').length) {
@@ -91,19 +120,17 @@ odoo.define('check_available_qty_internal_transfer.excess_stock_dialog', functio
                 .attr('type', 'button')
                 .addClass('btn btn-info o_excess_stock_info_btn')
                 .text(_t("Information"))
-                .css({'margin-left': '5px', 'margin-right': '5px'})
+                .css({ 'margin-left': '5px', 'margin-right': '5px' })
                 .on('click', function (e) {
                     e.preventDefault();
                     e.stopPropagation();
-                    if (dialogInstance && typeof dialogInstance.close === 'function') {
-                        dialogInstance.close();
-                    } else {
-                        $dialogEl.closest('.modal, .o_dialog').find('.close, .btn-close, [data-dismiss="modal"]').click();
-                        $dialogEl.closest('.modal, .o_dialog').remove();
-                        $('.modal-backdrop').remove();
-                        $('body').removeClass('modal-open');
-                    }
-                    triggerFormSaveWithExcessContext(dialogInstance);
+
+                    $modal.find('.close, .btn-close, [data-dismiss="modal"]').click();
+                    $modal.remove();
+                    $('.modal-backdrop').remove();
+                    $('body').removeClass('modal-open');
+
+                    triggerFormSaveWithExcessContext(null);
                 });
 
             var $okBtn = $footer.find('.btn-primary, button:first');
@@ -113,6 +140,33 @@ odoo.define('check_available_qty_internal_transfer.excess_stock_dialog', functio
                 $footer.append($infoBtn);
             }
         }
+    }
+
+    function scanDOMForExcessStockModals() {
+        $('.modal, .o_dialog, div[role="dialog"]').each(function () {
+            checkAndInjectInfoButton(this);
+        });
+    }
+
+    if (typeof window !== 'undefined' && window.document) {
+        var observer = new MutationObserver(function (mutations) {
+            for (var i = 0; i < mutations.length; i++) {
+                var added = mutations[i].addedNodes;
+                for (var j = 0; j < added.length; j++) {
+                    var node = added[j];
+                    if (node.nodeType === 1) { // Element
+                        if ($(node).is('.modal, .o_dialog, div[role="dialog"]') || $(node).find('.modal, .o_dialog, div[role="dialog"]').length) {
+                            scanDOMForExcessStockModals();
+                        }
+                    }
+                }
+            }
+        });
+
+        $(document).ready(function () {
+            observer.observe(document.body, { childList: true, subtree: true });
+            setInterval(scanDOMForExcessStockModals, 500);
+        });
     }
 
     Dialog.include({
@@ -145,7 +199,7 @@ odoo.define('check_available_qty_internal_transfer.excess_stock_dialog', functio
         start: function () {
             var self = this;
             return this._super.apply(this, arguments).then(function () {
-                attachInformationButtonToElement(self.$el, self);
+                checkAndInjectInfoButton(self.$el);
             });
         }
     });
