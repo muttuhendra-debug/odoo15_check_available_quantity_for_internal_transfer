@@ -107,17 +107,26 @@ class StockMoveLine(models.Model):
 
     def _search_is_excess_stock(self, operator, value):
         query = """
+            WITH quant_sum AS (
+                SELECT product_id, location_id, COALESCE(SUM(quantity), 0) AS total_quant
+                FROM stock_quant
+                GROUP BY product_id, location_id
+            )
             SELECT sml.id
             FROM stock_move_line sml
             JOIN stock_picking sp ON sml.picking_id = sp.id
             JOIN stock_picking_type spt ON sp.picking_type_id = spt.id
             JOIN product_product pp ON sml.product_id = pp.id
             JOIN product_template pt ON pp.product_tmpl_id = pt.id
+            LEFT JOIN quant_sum qs ON qs.product_id = sml.product_id AND qs.location_id = sml.location_id
             WHERE spt.code = 'internal'
               AND sml.qty_done > 0
               AND sml.state IN ('assigned', 'confirmed', 'draft', 'waiting', 'done')
               AND pt.type = 'product'
               AND (sml.state != 'done' OR sp.is_locked = FALSE)
+              AND sml.qty_done > COALESCE(qs.total_quant, 0)
+            ORDER BY sml.id DESC
+            LIMIT 1000
         """
         self.env.cr.execute(query)
         res = self.env.cr.fetchall()
