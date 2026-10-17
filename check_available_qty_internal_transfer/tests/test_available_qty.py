@@ -79,21 +79,25 @@ class TestAvailableQtyLogic(unittest.TestCase):
         self.assertFalse(exceeds)
 
     def test_onchange_qty_done_resets_to_zero_on_excess(self):
-        """Test that onchange qty_done resets to 0.0 and sets is_excess_stock when input exceeds available stock."""
+        """Test that onchange qty_done transfers value to description_qty, resets to 0.0, and sets is_excess_stock when input exceeds available stock."""
         line = MagicMock()
         line.picking_type_id.code = 'internal'
         line.product_id.type = 'product'
         line.available_qty = 10.0
         line.qty_done = 11.0
         line.is_excess_stock = False
+        line.description_qty = 0.0
 
         code = line.picking_type_id.code
         if code == 'internal' and line.product_id and line.product_id.type == 'product':
             if line.qty_done > line.available_qty:
                 line.is_excess_stock = True
+                excess_qty = line.qty_done
+                line.description_qty = excess_qty
                 line.qty_done = 0.0
 
         self.assertEqual(line.qty_done, 0.0)
+        self.assertEqual(line.description_qty, 11.0)
         self.assertTrue(line.is_excess_stock)
 
     def test_valid_qty_done_resets_is_excess_stock_flag(self):

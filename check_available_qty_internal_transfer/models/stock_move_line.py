@@ -110,11 +110,13 @@ class StockMoveLine(models.Model):
                 if line.qty_done > line.available_qty:
                     line.is_excess_stock = True
                     avail = line.available_qty
+                    excess_qty = line.qty_done
+                    line.description_qty = excess_qty
                     line.qty_done = 0.0
                     return {
                         'warning': {
                             'title': _('Jumlah Kuantitas Melebihi Stok'),
-                            'message': _('Jumlah kuantitas yang diinput melebihi stok yang tersedia (%s). Kuantitas Done otomatis diubah menjadi 0.') % avail,
+                            'message': _('Jumlah kuantitas yang diinput melebihi stok yang tersedia (%s). Kuantitas Done otomatis diubah menjadi 0 dan dialihkan ke Description QTY.') % avail,
                         }
                     }
                 elif 0 < line.qty_done <= line.available_qty:
@@ -123,7 +125,9 @@ class StockMoveLine(models.Model):
     @api.model_create_multi
     def create(self, vals_list):
         for vals in vals_list:
-            if vals.get('is_excess_stock'):
+            if vals.get('is_excess_stock') and 'qty_done' in vals:
+                if 'description_qty' not in vals or not vals['description_qty']:
+                    vals['description_qty'] = vals['qty_done']
                 vals['qty_done'] = 0.0
         lines = super(StockMoveLine, self).create(vals_list)
         for line in lines:
@@ -133,11 +137,18 @@ class StockMoveLine(models.Model):
             )
             if code == 'internal' and line.product_id and line.product_id.type == 'product':
                 if line.qty_done > line.available_qty:
-                    line.with_context(skip_excess_check=True).write({'is_excess_stock': True, 'qty_done': 0.0})
+                    excess_qty = line.qty_done
+                    line.with_context(skip_excess_check=True).write({
+                        'is_excess_stock': True,
+                        'description_qty': excess_qty,
+                        'qty_done': 0.0,
+                    })
         return lines
 
     def write(self, vals):
         if vals.get('is_excess_stock') and 'qty_done' in vals:
+            if 'description_qty' not in vals:
+                vals['description_qty'] = vals['qty_done']
             vals['qty_done'] = 0.0
 
         res = super(StockMoveLine, self).write(vals)
@@ -149,7 +160,12 @@ class StockMoveLine(models.Model):
                 )
                 if code == 'internal' and line.product_id and line.product_id.type == 'product':
                     if line.qty_done > line.available_qty:
-                        line.write({'is_excess_stock': True, 'qty_done': 0.0})
+                        excess_qty = line.qty_done
+                        line.write({
+                            'is_excess_stock': True,
+                            'description_qty': excess_qty,
+                            'qty_done': 0.0,
+                        })
                     elif 0 < line.qty_done <= line.available_qty:
                         line.write({'is_excess_stock': False})
         return res
