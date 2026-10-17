@@ -46,9 +46,9 @@
                     <field name="product_barcode" optional="show"/>
                     <field name="lot_id" optional="hide"/>
                     <field name="available_qty" optional="show"/>
+                    <field name="description_qty" optional="show" class="text-center"/>
                     <field name="location_id"/>
                     <field name="location_dest_id"/>
-                    <field name="qty_done"/>
                     <field name="product_uom_id" string="Unit of Measure" groups="uom.group_uom"/>
                     <field name="state" widget="badge" optional="show"/>
                 </tree>
