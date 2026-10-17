@@ -1,5 +1,4 @@
 from odoo import api, fields, models, _
-from odoo.exceptions import UserError
 
 
 class StockMoveLine(models.Model):
@@ -94,23 +93,6 @@ class StockMoveLine(models.Model):
 
             line.available_qty = avail
 
-    @api.constrains('qty_done', 'location_id', 'product_id', 'lot_id', 'state')
-    def _check_available_qty_limit(self):
-        if self.env.context.get('skip_excess_check'):
-            return
-        for line in self:
-            if line.state == 'cancel':
-                continue
-            if line.state == 'done' and line.picking_id and line.picking_id.is_locked:
-                continue
-            code = (
-                (line.picking_type_id and line.picking_type_id.code)
-                or (line.picking_id and line.picking_id.picking_type_id and line.picking_id.picking_type_id.code)
-            )
-            if code == 'internal' and line.qty_done > 0:
-                if line.qty_done > line.available_qty:
-                    raise UserError(_("Jumlah Kuantitas Yang Diinput Melebihi Stok"))
-
     @api.depends('qty_done', 'available_qty', 'picking_type_id.code', 'picking_id.picking_type_id.code', 'state', 'picking_id.is_locked')
     def _compute_is_excess_stock(self):
         for line in self:
@@ -136,8 +118,6 @@ class StockMoveLine(models.Model):
               AND sml.state IN ('assigned', 'confirmed', 'draft', 'waiting', 'done')
               AND pt.type = 'product'
               AND (sml.state != 'done' OR sp.is_locked = FALSE)
-            ORDER BY sml.id DESC
-            LIMIT 1000
         """
         self.env.cr.execute(query)
         res = self.env.cr.fetchall()

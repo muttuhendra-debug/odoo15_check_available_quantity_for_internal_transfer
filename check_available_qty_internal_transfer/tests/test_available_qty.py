@@ -46,7 +46,7 @@ class TestAvailableQtyLogic(unittest.TestCase):
         self.assertEqual(avail_converted, 2.0)
 
     def test_validate_quantity_exceeds_available(self):
-        """Test that validating or updating a picking line with qty_done > available_qty raises error."""
+        """Test that validating or updating a picking line with qty_done > available_qty evaluates to excess stock."""
         line = MagicMock()
         line.picking_type_id.code = 'internal'
         line.qty_done = 21.0
@@ -78,28 +78,10 @@ class TestAvailableQtyLogic(unittest.TestCase):
         exceeds = line.picking_type_id.code == 'internal' and line.qty_done > line.available_qty
         self.assertFalse(exceeds)
 
-    def test_skip_excess_check_context(self):
-        """Test that context flag skip_excess_check bypasses excess check constraint."""
-        try:
-            from check_available_qty_internal_transfer.models.stock_move_line import StockMoveLine
-            line = MagicMock()
-            line.env.context = {'skip_excess_check': True}
-            line.state = 'draft'
-            line.picking_type_id.code = 'internal'
-            line.qty_done = 10.0
-            line.available_qty = 5.0
-            StockMoveLine._check_available_qty_limit(line)
-        except ImportError:
-            line = MagicMock()
-            line.env.context = {'skip_excess_check': True}
-            bypassed = bool(line.env.context.get('skip_excess_check'))
-            self.assertTrue(bypassed)
-
 
 # Try importing Odoo TransactionCase if Odoo is available in runtime
 try:
     from odoo.tests.common import TransactionCase
-    from odoo.exceptions import UserError
 
     class TestAvailableQtyOdoo(TransactionCase):
         """Odoo Integration test for stock.move.line available_qty."""
@@ -161,38 +143,12 @@ try:
             self.assertEqual(line.qty_done, 5.0)
             self.assertEqual(line.available_qty, 20.0)
 
-        def test_picking_validation_exceed_available_qty(self):
-            self.env['stock.quant'].create({
-                'product_id': self.product.id,
-                'location_id': self.location.id,
-                'quantity': 20.0,
-            })
-
-            picking_type = self.env['stock.picking.type'].search([('code', '=', 'internal')], limit=1)
-            picking = self.env['stock.picking'].create({
-                'picking_type_id': picking_type.id if picking_type else False,
-                'location_id': self.location.id,
-                'location_dest_id': self.dest_location.id,
-            })
-
-            self.env['stock.move.line'].create({
-                'picking_id': picking.id,
-                'product_id': self.product.id,
-                'location_id': self.location.id,
-                'location_dest_id': self.dest_location.id,
-                'product_uom_id': self.product.uom_id.id,
-                'qty_done': 25.0,
-            })
-
-            with self.assertRaises(UserError):
-                picking.button_validate()
-
         def test_excess_stock_menu_action(self):
             action = self.env.ref('check_available_qty_internal_transfer.action_excess_stock_input_internal_transfer')
             self.assertTrue(action)
             self.assertEqual(action.res_model, 'stock.move.line')
 
-        def test_skip_excess_check_context_odoo(self):
+        def test_excess_stock_line_saved_and_detected(self):
             self.env['stock.quant'].create({
                 'product_id': self.product.id,
                 'location_id': self.location.id,
@@ -206,17 +162,7 @@ try:
                 'location_dest_id': self.dest_location.id,
             })
 
-            with self.assertRaises(UserError):
-                self.env['stock.move.line'].create({
-                    'picking_id': picking.id,
-                    'product_id': self.product.id,
-                    'location_id': self.location.id,
-                    'location_dest_id': self.dest_location.id,
-                    'product_uom_id': self.product.uom_id.id,
-                    'qty_done': 25.0,
-                })
-
-            line = self.env['stock.move.line'].with_context(skip_excess_check=True).create({
+            line = self.env['stock.move.line'].create({
                 'picking_id': picking.id,
                 'product_id': self.product.id,
                 'location_id': self.location.id,
