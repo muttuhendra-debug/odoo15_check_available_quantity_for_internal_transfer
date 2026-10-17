@@ -16,11 +16,6 @@ placed after the Lot/Serial Number column to show product available stock at sou
     'data': [
         'views/stock_picking_views.xml',
     ],
-    'assets': {
-        'web.assets_backend': [
-            'check_available_qty_internal_transfer/static/src/js/excess_stock_dialog.js',
-        ],
-    },
     'installable': True,
     'application': False,
     'auto_install': False,
