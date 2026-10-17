@@ -3,8 +3,18 @@ odoo.define('check_available_qty_internal_transfer.excess_stock_dialog', functio
 
     var Dialog = require('web.Dialog');
     var CrashManager = require('web.CrashManager');
+    var WebClient = require('web.WebClient');
     var core = require('web.core');
     var _t = core._t;
+
+    var currentWebClientInstance = null;
+
+    WebClient.include({
+        init: function () {
+            this._super.apply(this, arguments);
+            currentWebClientInstance = this;
+        },
+    });
 
     function isExcessStockError(error) {
         if (!error) return false;
@@ -34,13 +44,10 @@ odoo.define('check_available_qty_internal_transfer.excess_stock_dialog', functio
     }
 
     function saveWithExcessStockContext(widget) {
-        var webClient = core.bus;
-        var actionManager = (widget && widget.action_manager) || (webClient && webClient.action_manager);
-        if (!actionManager && window.odoo && window.odoo.__DEBUG__ && window.odoo.__DEBUG__.services) {
-            var wc = window.odoo.__DEBUG__.services['web.web_client'];
-            if (wc) {
-                actionManager = wc.action_manager;
-            }
+        var actionManager = currentWebClientInstance && currentWebClientInstance.action_manager;
+
+        if (!actionManager && widget) {
+            actionManager = widget.action_manager || (widget.getParent && widget.getParent() && widget.getParent().action_manager);
         }
 
         var controller = actionManager && actionManager.getCurrentController && actionManager.getCurrentController();
