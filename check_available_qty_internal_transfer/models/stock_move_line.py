@@ -1,5 +1,4 @@
 from odoo import api, fields, models, _
-from odoo.exceptions import UserError
 
 
 class StockMoveLine(models.Model):
@@ -18,10 +17,16 @@ class StockMoveLine(models.Model):
         help='Available stock quantity of the product at the source location.',
     )
 
+    description_qty = fields.Float(
+        string='Description QTY',
+        digits='Product Unit of Measure',
+        help='Description quantity for stock move line.',
+    )
+
     is_excess_stock = fields.Boolean(
         string='Is Excess Stock Input',
-        compute='_compute_is_excess_stock',
-        search='_search_is_excess_stock',
+        default=False,
+        copy=False,
         help='Indicates if the done quantity exceeds the available quantity for internal transfers.',
     )
 
@@ -36,7 +41,6 @@ class StockMoveLine(models.Model):
                 (line.picking_type_id and line.picking_type_id.code)
                 or (line.picking_id and line.picking_id.picking_type_id and line.picking_id.picking_type_id.code)
             )
-            # Fast-path: if not an internal transfer or picking type code is known to be non-internal, skip stock quant searches
             if code and code != 'internal':
                 line.available_qty = 0.0
                 continue
@@ -95,60 +99,73 @@ class StockMoveLine(models.Model):
 
             line.available_qty = avail
 
-    @api.constrains('qty_done', 'location_id', 'product_id', 'lot_id', 'state')
-    def _check_available_qty_limit(self):
+    @api.onchange('qty_done')
+    def _onchange_qty_done_check_available(self):
         for line in self:
-            if line.state == 'cancel':
-                continue
-            if line.state == 'done' and line.picking_id and line.picking_id.is_locked:
-                continue
             code = (
                 (line.picking_type_id and line.picking_type_id.code)
                 or (line.picking_id and line.picking_id.picking_type_id and line.picking_id.picking_type_id.code)
             )
-            if code == 'internal' and line.qty_done > 0:
+            if code == 'internal' and line.product_id and line.product_id.type == 'product':
                 if line.qty_done > line.available_qty:
-                    raise UserError(_("Jumlah Kuantitas Yang Diinput Melebihi Stok"))
+                    line.is_excess_stock = True
+                    avail = line.available_qty
+                    excess_qty = line.qty_done
+                    line.description_qty = excess_qty
+                    line.qty_done = 0.0
+                    return {
+                        'warning': {
+                            'title': _('Jumlah Kuantitas Melebihi Stok'),
+                            'message': _('Jumlah kuantitas yang diinput melebihi stok yang tersedia (%s). Kuantitas Done otomatis diubah menjadi 0 dan dialihkan ke Description QTY.') % avail,
+                        }
+                    }
+                elif 0 < line.qty_done <= line.available_qty:
+                    line.is_excess_stock = False
 
-    @api.depends('qty_done', 'available_qty', 'picking_type_id.code', 'picking_id.picking_type_id.code', 'state', 'picking_id.is_locked')
-    def _compute_is_excess_stock(self):
-        for line in self:
+    @api.model_create_multi
+    def create(self, vals_list):
+        for vals in vals_list:
+            if vals.get('is_excess_stock') and 'qty_done' in vals:
+                if 'description_qty' not in vals or not vals['description_qty']:
+                    vals['description_qty'] = vals['qty_done']
+                vals['qty_done'] = 0.0
+        lines = super(StockMoveLine, self).create(vals_list)
+        for line in lines:
             code = (
                 (line.picking_type_id and line.picking_type_id.code)
                 or (line.picking_id and line.picking_id.picking_type_id and line.picking_id.picking_type_id.code)
             )
-            is_locked_done = line.state == 'done' and line.picking_id and line.picking_id.is_locked
-            line.is_excess_stock = bool(
-                code == 'internal' and line.state != 'cancel' and not is_locked_done and line.qty_done > line.available_qty
-            )
+            if code == 'internal' and line.product_id and line.product_id.type == 'product':
+                if line.qty_done > line.available_qty:
+                    excess_qty = line.qty_done
+                    line.with_context(skip_excess_check=True).write({
+                        'is_excess_stock': True,
+                        'description_qty': excess_qty,
+                        'qty_done': 0.0,
+                    })
+        return lines
 
-    def _search_is_excess_stock(self, operator, value):
-        query = """
-            SELECT sml.id
-            FROM stock_move_line sml
-            JOIN stock_picking sp ON sml.picking_id = sp.id
-            JOIN stock_picking_type spt ON sp.picking_type_id = spt.id
-            JOIN product_product pp ON sml.product_id = pp.id
-            JOIN product_template pt ON pp.product_tmpl_id = pt.id
-            WHERE spt.code = 'internal'
-              AND sml.qty_done > 0
-              AND sml.state IN ('assigned', 'confirmed', 'draft', 'waiting', 'done')
-              AND pt.type = 'product'
-              AND (sml.state != 'done' OR sp.is_locked = FALSE)
-              AND sml.date >= CURRENT_DATE
-        """
-        self.env.cr.execute(query)
-        res = self.env.cr.fetchall()
-        candidate_ids = [r[0] for r in res] if res else []
+    def write(self, vals):
+        if vals.get('is_excess_stock') and 'qty_done' in vals:
+            if 'description_qty' not in vals:
+                vals['description_qty'] = vals['qty_done']
+            vals['qty_done'] = 0.0
 
-        if not candidate_ids:
-            excess_ids = []
-        else:
-            candidate_lines = self.browse(candidate_ids)
-            excess_ids = candidate_lines.filtered(lambda l: l.qty_done > l.available_qty).ids
-
-        positive = (operator in ('=', '==') and value) or (operator == '!=' and not value)
-        if positive:
-            return [('id', 'in', excess_ids)]
-        else:
-            return [('id', 'not in', excess_ids)]
+        res = super(StockMoveLine, self).write(vals)
+        if not self.env.context.get('skip_excess_check'):
+            for line in self.with_context(skip_excess_check=True):
+                code = (
+                    (line.picking_type_id and line.picking_type_id.code)
+                    or (line.picking_id and line.picking_id.picking_type_id and line.picking_id.picking_type_id.code)
+                )
+                if code == 'internal' and line.product_id and line.product_id.type == 'product':
+                    if line.qty_done > line.available_qty:
+                        excess_qty = line.qty_done
+                        line.write({
+                            'is_excess_stock': True,
+                            'description_qty': excess_qty,
+                            'qty_done': 0.0,
+                        })
+                    elif 0 < line.qty_done <= line.available_qty:
+                        line.write({'is_excess_stock': False})
+        return res
