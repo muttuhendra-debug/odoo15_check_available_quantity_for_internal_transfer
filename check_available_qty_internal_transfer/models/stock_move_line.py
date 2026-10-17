@@ -17,6 +17,11 @@ class StockMoveLine(models.Model):
         help='Available stock quantity of the product at the source location.',
     )
 
+    description_qty = fields.Char(
+        string='Description QTY',
+        help='Description quantity for stock move line.',
+    )
+
     is_excess_stock = fields.Boolean(
         string='Is Excess Stock Input',
         default=False,

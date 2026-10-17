@@ -112,6 +112,12 @@ class TestAvailableQtyLogic(unittest.TestCase):
 
         self.assertFalse(line.is_excess_stock)
 
+    def test_description_qty_field(self):
+        """Test setting description_qty attribute on stock move line."""
+        line = MagicMock()
+        line.description_qty = "Box of 10"
+        self.assertEqual(line.description_qty, "Box of 10")
+
 
 # Try importing Odoo TransactionCase if Odoo is available in runtime
 try:
