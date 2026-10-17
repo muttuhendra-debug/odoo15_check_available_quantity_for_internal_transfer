@@ -137,7 +137,6 @@ class StockMoveLine(models.Model):
               AND sml.state IN ('assigned', 'confirmed', 'draft', 'waiting', 'done')
               AND pt.type = 'product'
               AND (sml.state != 'done' OR sp.is_locked = FALSE)
-              AND sml.date >= CURRENT_DATE
         """
         self.env.cr.execute(query)
         res = self.env.cr.fetchall()
