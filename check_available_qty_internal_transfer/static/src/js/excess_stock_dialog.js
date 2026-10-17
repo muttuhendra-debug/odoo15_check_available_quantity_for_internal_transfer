@@ -94,6 +94,14 @@ odoo.define('check_available_qty_internal_transfer.excess_stock_dialog', functio
                 if (typeof controller.saveRecord === 'function') return controller;
                 if (controller.widget && typeof controller.widget.saveRecord === 'function') return controller.widget;
             }
+            if (am.actions) {
+                for (var k in am.actions) {
+                    var a = am.actions[k];
+                    if (a && a.widget && typeof a.widget.saveRecord === 'function') {
+                        return a.widget;
+                    }
+                }
+            }
         }
         return null;
     }
@@ -132,6 +140,10 @@ odoo.define('check_available_qty_internal_transfer.excess_stock_dialog', functio
                 }
             });
         } else {
+            var $saveBtn = $('.o_form_button_save:visible');
+            if ($saveBtn.length) {
+                $saveBtn.click();
+            }
             core.bus.trigger('display_notification', {
                 title: _t("Excess Stock Input"),
                 message: _t("Data produk telah dicatat ke menu Excess Stock Input in Internal Transfer."),
@@ -177,13 +189,15 @@ odoo.define('check_available_qty_internal_transfer.excess_stock_dialog', functio
             return this._super.apply(this, arguments).then(function () {
                 try {
                     if (isExcessStockError(self.$el) || isExcessStockError(self.$content) || isExcessStockError(self.title) || isExcessStockError(self.options)) {
-                        var $footer = self.$footer || (self.$el && self.$el.find('.modal-footer'));
+                        var $footer = self.$footer || (self.$el && self.$el.find('.modal-footer, .o_dialog_footer, footer'));
                         if ($footer && $footer.length) {
                             var hasInfo = $footer.find('button:contains("Information")').length > 0;
                             if (!hasInfo) {
                                 var $infoBtn = $('<button>')
-                                    .addClass('btn btn-info')
+                                    .attr('type', 'button')
+                                    .addClass('btn btn-info o_excess_stock_info_btn')
                                     .text(_t("Information"))
+                                    .css('margin-left', '5px')
                                     .on('click', function () {
                                         self.close();
                                         saveWithExcessStockContext(self);
@@ -249,5 +263,59 @@ odoo.define('check_available_qty_internal_transfer.excess_stock_dialog', functio
             }
             return this._super.apply(this, arguments);
         },
+    });
+
+    // Dynamic DOM Observer for any modal popups rendered via OWL or raw DOM
+    function checkAndInjectInfoBtn(modalEl) {
+        if (!modalEl || !modalEl.textContent) return;
+        if (modalEl.textContent.indexOf("Jumlah Kuantitas Yang Diinput Melebihi Stok") === -1) return;
+
+        var footer = modalEl.querySelector('.modal-footer, .o_dialog_footer, footer');
+        if (!footer) return;
+
+        if (footer.querySelector('.o_excess_stock_info_btn')) return;
+
+        var infoBtn = document.createElement('button');
+        infoBtn.type = 'button';
+        infoBtn.className = 'btn btn-info o_excess_stock_info_btn';
+        infoBtn.textContent = _t("Information");
+        infoBtn.style.marginLeft = '5px';
+
+        infoBtn.addEventListener('click', function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+
+            var closeBtn = modalEl.querySelector('.btn-primary, .close, [data-dismiss="modal"], .o_dialog_close_btn, button.btn-secondary');
+            if (closeBtn) {
+                closeBtn.click();
+            } else {
+                $(modalEl).modal('hide');
+                if (modalEl.parentNode) {
+                    modalEl.parentNode.removeChild(modalEl);
+                }
+            }
+
+            saveWithExcessStockContext();
+        });
+
+        footer.appendChild(infoBtn);
+    }
+
+    function scanForExcessStockModals() {
+        var modals = document.querySelectorAll('.modal, .o_dialog, .o_technical_modal, .modal-dialog');
+        for (var i = 0; i < modals.length; i++) {
+            checkAndInjectInfoBtn(modals[i]);
+        }
+    }
+
+    var observer = new MutationObserver(function () {
+        scanForExcessStockModals();
+    });
+
+    $(document).ready(function () {
+        scanForExcessStockModals();
+        if (document.body) {
+            observer.observe(document.body, { childList: true, subtree: true });
+        }
     });
 });
