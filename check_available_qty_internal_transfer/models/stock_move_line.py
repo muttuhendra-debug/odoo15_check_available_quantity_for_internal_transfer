@@ -17,8 +17,9 @@ class StockMoveLine(models.Model):
         help='Available stock quantity of the product at the source location.',
     )
 
-    description_qty = fields.Char(
+    description_qty = fields.Float(
         string='Description QTY',
+        digits='Product Unit of Measure',
         help='Description quantity for stock move line.',
     )
 
