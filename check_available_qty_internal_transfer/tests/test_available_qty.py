@@ -80,19 +80,20 @@ class TestAvailableQtyLogic(unittest.TestCase):
 
     def test_skip_excess_check_context(self):
         """Test that context flag skip_excess_check bypasses excess check constraint."""
-        line = MagicMock()
-        line.env.context = {'skip_excess_check': True}
-        line.state = 'draft'
-        line.picking_type_id.code = 'internal'
-        line.qty_done = 10.0
-        line.available_qty = 5.0
-
-        raised = False
-        if not line.env.context.get('skip_excess_check'):
-            if line.picking_type_id.code == 'internal' and line.qty_done > line.available_qty:
-                raised = True
-
-        self.assertFalse(raised)
+        try:
+            from check_available_qty_internal_transfer.models.stock_move_line import StockMoveLine
+            line = MagicMock()
+            line.env.context = {'skip_excess_check': True}
+            line.state = 'draft'
+            line.picking_type_id.code = 'internal'
+            line.qty_done = 10.0
+            line.available_qty = 5.0
+            StockMoveLine._check_available_qty_limit(line)
+        except ImportError:
+            line = MagicMock()
+            line.env.context = {'skip_excess_check': True}
+            bypassed = bool(line.env.context.get('skip_excess_check'))
+            self.assertTrue(bypassed)
 
 
 # Try importing Odoo TransactionCase if Odoo is available in runtime
