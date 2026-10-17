@@ -4,59 +4,16 @@ odoo.define('check_available_qty_internal_transfer.excess_stock_dialog', functio
     var Dialog = require('web.Dialog');
     var CrashManager = require('web.CrashManager');
     var WebClient = require('web.WebClient');
-    var FormController = require('web.FormController');
-    var BasicModel = require('web.BasicModel');
     var core = require('web.core');
     var _t = core ? core._t : function (s) { return s; };
 
     var currentWebClientInstance = null;
-    var skipExcessCheckActive = false;
 
     WebClient.include({
         init: function () {
             this._super.apply(this, arguments);
             currentWebClientInstance = this;
         },
-    });
-
-    // Patch BasicModel to automatically inject skip_excess_check into context when saving if active
-    BasicModel.include({
-        _save: function (handle, options) {
-            options = options || {};
-            if (skipExcessCheckActive) {
-                options.context = options.context || {};
-                options.context.skip_excess_check = true;
-                if (this.localData && this.localData[handle] && this.localData[handle].context) {
-                    this.localData[handle].context.skip_excess_check = true;
-                }
-            }
-            return this._super.apply(this, arguments);
-        },
-        save: function (handle, options) {
-            options = options || {};
-            if (skipExcessCheckActive) {
-                options.context = options.context || {};
-                options.context.skip_excess_check = true;
-                if (this.localData && this.localData[handle] && this.localData[handle].context) {
-                    this.localData[handle].context.skip_excess_check = true;
-                }
-            }
-            return this._super.apply(this, arguments);
-        }
-    });
-
-    // Patch FormController to inject skip_excess_check during saveRecord
-    FormController.include({
-        saveRecord: function (handle, options) {
-            options = options || {};
-            if (skipExcessCheckActive) {
-                options.context = options.context || {};
-                options.context.skip_excess_check = true;
-                options.additionalContext = options.additionalContext || {};
-                options.additionalContext.skip_excess_check = true;
-            }
-            return this._super.apply(this, arguments);
-        }
     });
 
     function extractText(obj, depth) {
@@ -117,32 +74,24 @@ odoo.define('check_available_qty_internal_transfer.excess_stock_dialog', functio
     }
 
     function triggerFormSaveWithExcessContext(ownerWidget) {
-        skipExcessCheckActive = true;
         var formWidget = findActiveFormWidget(ownerWidget);
-
-        var resetFlag = function () {
-            setTimeout(function () {
-                skipExcessCheckActive = false;
-            }, 1000);
-        };
+        var extraCtx = { skip_excess_check: true };
 
         if (formWidget && typeof formWidget.saveRecord === 'function') {
-            var extraCtx = { skip_excess_check: true };
             if (formWidget.model && formWidget.handle && formWidget.model.localData && formWidget.model.localData[formWidget.handle]) {
                 var record = formWidget.model.localData[formWidget.handle];
                 if (record.context) record.context.skip_excess_check = true;
             }
+            if (formWidget.initialState && formWidget.initialState.context) {
+                formWidget.initialState.context.skip_excess_check = true;
+            }
+
             formWidget.saveRecord(formWidget.handle, {
                 context: extraCtx,
                 additionalContext: extraCtx,
+                extraContext: extraCtx,
                 reload: true,
-            }).then(resetFlag).catch(resetFlag);
-        } else {
-            var $saveBtn = $('.o_form_button_save:visible, button.o_form_button_save');
-            if ($saveBtn.length) {
-                $saveBtn.click();
-            }
-            resetFlag();
+            });
         }
     }
 
@@ -219,65 +168,4 @@ odoo.define('check_available_qty_internal_transfer.excess_stock_dialog', functio
             return this._super.apply(this, arguments);
         },
     });
-
-    // Global DOM Observer Fallback for OWL Dialogs or Raw Dynamic Modals
-    function checkAndInjectModalButton(modalEl) {
-        if (!modalEl || !modalEl.textContent) return;
-        if (modalEl.textContent.indexOf("Jumlah Kuantitas Yang Diinput Melebihi Stok") === -1) return;
-
-        var footer = modalEl.querySelector('.modal-footer, .o_dialog_footer, footer, div[class*="footer"]');
-        if (!footer) return;
-
-        if (footer.querySelector('.o_excess_stock_info_btn')) return;
-
-        var infoBtn = document.createElement('button');
-        infoBtn.type = 'button';
-        infoBtn.className = 'btn btn-info o_excess_stock_info_btn';
-        infoBtn.textContent = 'Information';
-        infoBtn.style.marginLeft = '8px';
-        infoBtn.style.backgroundColor = '#17a2b8';
-        infoBtn.style.borderColor = '#17a2b8';
-        infoBtn.style.color = '#ffffff';
-
-        infoBtn.addEventListener('click', function (e) {
-            e.preventDefault();
-            e.stopPropagation();
-
-            var closeBtn = modalEl.querySelector('.btn-primary, .close, [data-dismiss="modal"], .o_dialog_close_btn, button.btn-secondary, button.btn-danger');
-            if (closeBtn) {
-                closeBtn.click();
-            } else {
-                modalEl.style.display = 'none';
-                if (modalEl.parentNode) modalEl.parentNode.removeChild(modalEl);
-            }
-
-            triggerFormSaveWithExcessContext();
-        });
-
-        footer.appendChild(infoBtn);
-    }
-
-    function scanAllModals() {
-        var selectors = ['.modal', '.o_dialog', '.o_technical_modal', '.modal-dialog', 'div[role="dialog"]', 'div[class*="modal"]', 'div[class*="dialog"]'];
-        for (var i = 0; i < selectors.length; i++) {
-            var els = document.querySelectorAll(selectors[i]);
-            for (var j = 0; j < els.length; j++) {
-                checkAndInjectModalButton(els[j]);
-            }
-        }
-    }
-
-    var observer = new MutationObserver(function () {
-        scanAllModals();
-    });
-
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', function () {
-            scanAllModals();
-            if (document.body) observer.observe(document.body, { childList: true, subtree: true });
-        });
-    } else {
-        scanAllModals();
-        if (document.body) observer.observe(document.body, { childList: true, subtree: true });
-    }
 });

@@ -36,7 +36,6 @@ class StockMoveLine(models.Model):
                 (line.picking_type_id and line.picking_type_id.code)
                 or (line.picking_id and line.picking_id.picking_type_id and line.picking_id.picking_type_id.code)
             )
-            # Fast-path: if not an internal transfer or picking type code is known to be non-internal, skip stock quant searches
             if code and code != 'internal':
                 line.available_qty = 0.0
                 continue
@@ -137,6 +136,8 @@ class StockMoveLine(models.Model):
               AND sml.state IN ('assigned', 'confirmed', 'draft', 'waiting', 'done')
               AND pt.type = 'product'
               AND (sml.state != 'done' OR sp.is_locked = FALSE)
+            ORDER BY sml.id DESC
+            LIMIT 1000
         """
         self.env.cr.execute(query)
         res = self.env.cr.fetchall()
