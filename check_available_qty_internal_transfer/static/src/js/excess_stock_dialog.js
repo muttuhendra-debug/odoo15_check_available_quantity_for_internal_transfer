@@ -115,30 +115,6 @@ odoo.define('check_available_qty_internal_transfer.excess_stock_dialog', functio
         }
     }
 
-    // Direct DOM observer specifically targeting modal dialogs when opened
-    if (typeof MutationObserver !== 'undefined') {
-        var modalObserver = new MutationObserver(function (mutations) {
-            for (var i = 0; i < mutations.length; i++) {
-                var added = mutations[i].addedNodes;
-                for (var j = 0; j < added.length; j++) {
-                    var node = added[j];
-                    if (node.nodeType === 1) {
-                        if ($(node).hasClass('modal') || $(node).find('.modal, .o_dialog').length || $(node).hasClass('o_dialog')) {
-                            var $modals = $(node).hasClass('modal') ? $(node) : $(node).find('.modal, .o_dialog');
-                            $modals.each(function () {
-                                attachInformationButtonToElement($(this));
-                            });
-                        }
-                    }
-                }
-            }
-        });
-
-        $(document).ready(function () {
-            modalObserver.observe(document.body, { childList: true, subtree: true });
-        });
-    }
-
     Dialog.include({
         init: function (parent, options) {
             options = options || {};
