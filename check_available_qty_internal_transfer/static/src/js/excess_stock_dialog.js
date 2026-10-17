@@ -16,45 +16,26 @@ odoo.define('check_available_qty_internal_transfer.excess_stock_dialog', functio
         },
     });
 
-    function extractText(obj, depth) {
-        if (!obj || (depth && depth > 5)) return "";
-        depth = depth || 0;
-        if (typeof obj === 'string') return obj;
-        if (typeof obj === 'number' || typeof obj === 'boolean') return String(obj);
-        if (typeof obj === 'function') {
-            try { return extractText(obj(), depth + 1); } catch (e) { return ""; }
+    function extractText(node) {
+        if (!node) return "";
+        if (typeof node === 'string') return node;
+        if (typeof node === 'number') return String(node);
+        if (node.jquery) return node.text() || "";
+        if (node.nodeType) return node.textContent || node.innerText || "";
+        if (typeof node === 'object') {
+            var str = "";
+            if (node.message) str += " " + extractText(node.message);
+            if (node.data) str += " " + extractText(node.data);
+            if (node.title) str += " " + extractText(node.title);
+            if (node.$content) str += " " + extractText(node.$content);
+            return str;
         }
-        if (obj.jquery || obj.nodeType) {
-            try {
-                return (obj.textContent || obj.innerText || (typeof obj.text === 'function' ? obj.text() : "")) + " " + (typeof obj.html === 'function' ? obj.html() : "");
-            } catch (e) { return ""; }
-        }
-        var res = "";
-        if (Array.isArray(obj)) {
-            for (var i = 0; i < obj.length; i++) {
-                res += " " + extractText(obj[i], depth + 1);
-            }
-            return res;
-        }
-        if (typeof obj === 'object') {
-            if (obj.message) res += " " + extractText(obj.message, depth + 1);
-            if (obj.data) res += " " + extractText(obj.data, depth + 1);
-            if (obj.title) res += " " + extractText(obj.title, depth + 1);
-            if (obj.$content) res += " " + extractText(obj.$content, depth + 1);
-            if (!res.trim()) {
-                for (var k in obj) {
-                    if (Object.prototype.hasOwnProperty.call(obj, k) && k !== 'parent' && k !== 'owner' && k !== 'widget') {
-                        var val = obj[k];
-                        if (typeof val === 'string' || typeof val === 'number') res += " " + val;
-                    }
-                }
-            }
-        }
-        return res;
+        return "";
     }
 
-    function isExcessStockError(obj) {
-        return extractText(obj).indexOf("Jumlah Kuantitas Yang Diinput Melebihi Stok") !== -1;
+    function isExcessStockMessage(text) {
+        if (!text) return false;
+        return text.indexOf("Jumlah Kuantitas Yang Diinput Melebihi Stok") !== -1;
     }
 
     function findActiveFormWidget(widget) {
@@ -95,10 +76,74 @@ odoo.define('check_available_qty_internal_transfer.excess_stock_dialog', functio
         }
     }
 
+    function attachInformationButtonToElement($dialogEl, dialogInstance) {
+        if (!$dialogEl || !$dialogEl.length) return;
+        var text = $dialogEl.text() || "";
+        if (!isExcessStockMessage(text)) return;
+
+        var $footer = $dialogEl.find('.modal-footer, .o_dialog_footer, footer');
+        if (!$footer.length) {
+            $footer = $dialogEl.closest('.modal-content, .o_dialog').find('.modal-footer, .o_dialog_footer, footer');
+        }
+
+        if ($footer.length && !$footer.find('.o_excess_stock_info_btn').length) {
+            var $infoBtn = $('<button>')
+                .attr('type', 'button')
+                .addClass('btn btn-info o_excess_stock_info_btn')
+                .text(_t("Information"))
+                .css({'margin-left': '5px', 'margin-right': '5px'})
+                .on('click', function (e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (dialogInstance && typeof dialogInstance.close === 'function') {
+                        dialogInstance.close();
+                    } else {
+                        $dialogEl.closest('.modal, .o_dialog').find('.close, .btn-close, [data-dismiss="modal"]').click();
+                        $dialogEl.closest('.modal, .o_dialog').remove();
+                        $('.modal-backdrop').remove();
+                        $('body').removeClass('modal-open');
+                    }
+                    triggerFormSaveWithExcessContext(dialogInstance);
+                });
+
+            var $okBtn = $footer.find('.btn-primary, button:first');
+            if ($okBtn.length) {
+                $infoBtn.insertAfter($okBtn);
+            } else {
+                $footer.append($infoBtn);
+            }
+        }
+    }
+
+    // Direct DOM observer specifically targeting modal dialogs when opened
+    if (typeof MutationObserver !== 'undefined') {
+        var modalObserver = new MutationObserver(function (mutations) {
+            for (var i = 0; i < mutations.length; i++) {
+                var added = mutations[i].addedNodes;
+                for (var j = 0; j < added.length; j++) {
+                    var node = added[j];
+                    if (node.nodeType === 1) {
+                        if ($(node).hasClass('modal') || $(node).find('.modal, .o_dialog').length || $(node).hasClass('o_dialog')) {
+                            var $modals = $(node).hasClass('modal') ? $(node) : $(node).find('.modal, .o_dialog');
+                            $modals.each(function () {
+                                attachInformationButtonToElement($(this));
+                            });
+                        }
+                    }
+                }
+            }
+        });
+
+        $(document).ready(function () {
+            modalObserver.observe(document.body, { childList: true, subtree: true });
+        });
+    }
+
     Dialog.include({
         init: function (parent, options) {
             options = options || {};
-            if (isExcessStockError(options) || isExcessStockError(parent) || isExcessStockError(options.$content)) {
+            var combinedText = extractText(options) + " " + extractText(parent) + " " + extractText(options.$content);
+            if (isExcessStockMessage(combinedText)) {
                 var self = this;
                 options.buttons = options.buttons || [];
                 var hasInfo = false;
@@ -111,7 +156,7 @@ odoo.define('check_available_qty_internal_transfer.excess_stock_dialog', functio
                 if (!hasInfo) {
                     options.buttons.push({
                         text: _t("Information"),
-                        class: 'btn-info',
+                        class: 'btn-info o_excess_stock_info_btn',
                         click: function () {
                             self.close();
                             triggerFormSaveWithExcessContext(parent || self);
@@ -124,28 +169,14 @@ odoo.define('check_available_qty_internal_transfer.excess_stock_dialog', functio
         start: function () {
             var self = this;
             return this._super.apply(this, arguments).then(function () {
-                if (isExcessStockError(self.$el) || isExcessStockError(self.options)) {
-                    var $footer = self.$footer || (self.$el && self.$el.find('.modal-footer, .o_dialog_footer, footer'));
-                    if ($footer && $footer.length && !$footer.find('.o_excess_stock_info_btn').length) {
-                        var $infoBtn = $('<button>')
-                            .attr('type', 'button')
-                            .addClass('btn btn-info o_excess_stock_info_btn')
-                            .text(_t("Information"))
-                            .css('margin-left', '5px')
-                            .on('click', function () {
-                                self.close();
-                                triggerFormSaveWithExcessContext(self);
-                            });
-                        $footer.append($infoBtn);
-                    }
-                }
+                attachInformationButtonToElement(self.$el, self);
             });
         }
     });
 
     CrashManager.include({
         show_warning: function (error) {
-            if (error && isExcessStockError(error)) {
+            if (error && isExcessStockMessage(extractText(error))) {
                 var self = this;
                 var dialog = new Dialog(this, {
                     title: (error && error.data && error.data.title) || (error && error.title) || _t("User Error"),
@@ -154,7 +185,7 @@ odoo.define('check_available_qty_internal_transfer.excess_stock_dialog', functio
                         { text: _t("Ok"), class: 'btn-primary', close: true },
                         {
                             text: _t("Information"),
-                            class: 'btn-info',
+                            class: 'btn-info o_excess_stock_info_btn',
                             click: function () {
                                 dialog.close();
                                 triggerFormSaveWithExcessContext(self);
@@ -167,5 +198,11 @@ odoo.define('check_available_qty_internal_transfer.excess_stock_dialog', functio
             }
             return this._super.apply(this, arguments);
         },
+        show_error: function (error) {
+            if (error && isExcessStockMessage(extractText(error))) {
+                return this.show_warning(error);
+            }
+            return this._super.apply(this, arguments);
+        }
     });
 });

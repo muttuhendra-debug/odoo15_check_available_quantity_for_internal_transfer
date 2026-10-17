@@ -124,30 +124,16 @@ class StockMoveLine(models.Model):
             )
 
     def _search_is_excess_stock(self, operator, value):
-        query = """
-            SELECT sml.id
-            FROM stock_move_line sml
-            JOIN stock_picking sp ON sml.picking_id = sp.id
-            JOIN stock_picking_type spt ON sp.picking_type_id = spt.id
-            JOIN product_product pp ON sml.product_id = pp.id
-            JOIN product_template pt ON pp.product_tmpl_id = pt.id
-            WHERE spt.code = 'internal'
-              AND sml.qty_done > 0
-              AND sml.state IN ('assigned', 'confirmed', 'draft', 'waiting', 'done')
-              AND pt.type = 'product'
-              AND (sml.state != 'done' OR sp.is_locked = FALSE)
-            ORDER BY sml.id DESC
-            LIMIT 1000
-        """
-        self.env.cr.execute(query)
-        res = self.env.cr.fetchall()
-        candidate_ids = [r[0] for r in res] if res else []
-
-        if not candidate_ids:
-            excess_ids = []
-        else:
-            candidate_lines = self.browse(candidate_ids)
-            excess_ids = candidate_lines.filtered(lambda l: l.qty_done > l.available_qty).ids
+        domain = [
+            ('picking_id.picking_type_id.code', '=', 'internal'),
+            ('qty_done', '>', 0),
+            ('state', 'in', ('assigned', 'confirmed', 'draft', 'waiting', 'done')),
+            ('product_id.type', '=', 'product'),
+        ]
+        candidate_lines = self.env['stock.move.line'].search(domain)
+        excess_ids = candidate_lines.filtered(
+            lambda l: not (l.state == 'done' and l.picking_id and l.picking_id.is_locked) and l.qty_done > l.available_qty
+        ).ids
 
         positive = (operator in ('=', '==') and value) or (operator == '!=' and not value)
         if positive:
