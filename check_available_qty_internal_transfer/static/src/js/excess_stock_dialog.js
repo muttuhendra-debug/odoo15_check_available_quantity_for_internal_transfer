@@ -17,7 +17,7 @@ odoo.define('check_available_qty_internal_transfer.excess_stock_dialog', functio
     });
 
     function extractText(obj, depth) {
-        if (!obj || (depth && depth > 4)) return "";
+        if (!obj || (depth && depth > 5)) return "";
         depth = depth || 0;
         if (typeof obj === 'string') return obj;
         if (typeof obj === 'number' || typeof obj === 'boolean') return String(obj);
@@ -28,12 +28,12 @@ odoo.define('check_available_qty_internal_transfer.excess_stock_dialog', functio
                 return "";
             }
         }
-        if (window.jQuery && obj instanceof window.jQuery) {
+        if (typeof obj.text === 'function') {
             try {
-                return (obj.text() || "") + " " + (obj.html() || "");
-            } catch (e) {
-                return "";
-            }
+                var t = obj.text();
+                var h = typeof obj.html === 'function' ? obj.html() : "";
+                return (t || "") + " " + (h || "");
+            } catch (e) {}
         }
         if (obj.nodeType) {
             return obj.textContent || obj.innerText || "";
@@ -55,7 +55,7 @@ odoo.define('check_available_qty_internal_transfer.excess_stock_dialog', functio
 
             if (!result.trim()) {
                 for (var key in obj) {
-                    if (Object.prototype.hasOwnProperty.call(obj, key) && key !== 'parent' && key !== 'owner') {
+                    if (Object.prototype.hasOwnProperty.call(obj, key) && key !== 'parent' && key !== 'owner' && key !== 'widget') {
                         var val = obj[key];
                         if (typeof val === 'string' || typeof val === 'number') {
                             result += " " + val;
@@ -176,7 +176,7 @@ odoo.define('check_available_qty_internal_transfer.excess_stock_dialog', functio
             var self = this;
             return this._super.apply(this, arguments).then(function () {
                 try {
-                    if (isExcessStockError(self.$el) || isExcessStockError(self.$content) || isExcessStockError(self.title)) {
+                    if (isExcessStockError(self.$el) || isExcessStockError(self.$content) || isExcessStockError(self.title) || isExcessStockError(self.options)) {
                         var $footer = self.$footer || (self.$el && self.$el.find('.modal-footer'));
                         if ($footer && $footer.length) {
                             var hasInfo = $footer.find('button:contains("Information")').length > 0;
