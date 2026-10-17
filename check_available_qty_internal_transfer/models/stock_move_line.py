@@ -97,6 +97,8 @@ class StockMoveLine(models.Model):
 
     @api.constrains('qty_done', 'location_id', 'product_id', 'lot_id', 'state')
     def _check_available_qty_limit(self):
+        if self.env.context.get('skip_excess_check'):
+            return
         for line in self:
             if line.state == 'cancel':
                 continue
