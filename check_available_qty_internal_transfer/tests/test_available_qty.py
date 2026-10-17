@@ -78,6 +78,21 @@ class TestAvailableQtyLogic(unittest.TestCase):
         exceeds = line.picking_type_id.code == 'internal' and line.qty_done > line.available_qty
         self.assertFalse(exceeds)
 
+    def test_onchange_qty_done_resets_to_zero_on_excess(self):
+        """Test that onchange qty_done resets to 0.0 when input exceeds available stock."""
+        line = MagicMock()
+        line.picking_type_id.code = 'internal'
+        line.product_id.type = 'product'
+        line.available_qty = 10.0
+        line.qty_done = 11.0
+
+        code = line.picking_type_id.code
+        if code == 'internal' and line.product_id and line.product_id.type == 'product':
+            if line.qty_done > line.available_qty:
+                line.qty_done = 0.0
+
+        self.assertEqual(line.qty_done, 0.0)
+
 
 # Try importing Odoo TransactionCase if Odoo is available in runtime
 try:

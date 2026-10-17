@@ -93,6 +93,23 @@ class StockMoveLine(models.Model):
 
             line.available_qty = avail
 
+    @api.onchange('qty_done')
+    def _onchange_qty_done_check_available(self):
+        for line in self:
+            code = (
+                (line.picking_type_id and line.picking_type_id.code)
+                or (line.picking_id and line.picking_id.picking_type_id and line.picking_id.picking_type_id.code)
+            )
+            if code == 'internal' and line.product_id and line.product_id.type == 'product':
+                if line.qty_done > line.available_qty:
+                    line.qty_done = 0.0
+                    return {
+                        'warning': {
+                            'title': _('Jumlah Kuantitas Melebihi Stok'),
+                            'message': _('Jumlah kuantitas yang diinput melebihi stok yang tersedia (%s). Kuantitas Done otomatis diubah menjadi 0.') % line.available_qty,
+                        }
+                    }
+
     @api.depends('qty_done', 'available_qty', 'picking_type_id.code', 'picking_id.picking_type_id.code', 'state', 'picking_id.is_locked')
     def _compute_is_excess_stock(self):
         for line in self:
