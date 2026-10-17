@@ -11,7 +11,7 @@
             </xpath>
             <xpath expr="//field[@name='lot_id']" position="after">
                 <field name="available_qty" optional="show"/>
-                <field name="description_qty" optional="show"/>
+                <field name="description_qty" optional="show" class="text-center"/>
             </xpath>
         </field>
     </record>
